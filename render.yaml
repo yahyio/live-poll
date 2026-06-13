@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: live-poll
+    env: java
+    buildCommand: ./gradlew bootJar
+    startCommand: java -jar build/libs/*.jar
+    envVars:
+      - key: SERVER_PORT
+        value: 10000

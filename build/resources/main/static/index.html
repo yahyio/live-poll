@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pulse — live polls</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0f1118;
+  color: #eceae4;
+  font-family: system-ui, sans-serif;
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 3.5rem 1.4rem 5rem;
+}
+h1 { font-size: 2.2rem; }
+h1 span { color: #5dd9a0; }
+.sub { color: #80849b; margin-top: 0.4rem; font-size: 0.92rem; }
+.composer {
+  margin-top: 2.2rem;
+  background: #161924;
+  border: 1px solid #252a3a;
+  border-radius: 14px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+input {
+  background: #0f1118;
+  border: 1px solid #252a3a;
+  border-radius: 8px;
+  color: #eceae4;
+  font: inherit;
+  padding: 0.7em 0.9em;
+  outline: none;
+}
+input:focus { border-color: #5dd9a0; }
+.composer button {
+  align-self: flex-start;
+  background: #5dd9a0;
+  color: #0c1410;
+  border: none;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 600;
+  padding: 0.7em 1.8em;
+  cursor: pointer;
+}
+.composer button:hover { filter: brightness(1.1); }
+.polls { margin-top: 2.4rem; display: flex; flex-direction: column; gap: 1.4rem; }
+.poll {
+  background: #161924;
+  border: 1px solid #252a3a;
+  border-radius: 14px;
+  padding: 1.4rem 1.5rem;
+}
+.poll h2 { font-size: 1.15rem; margin-bottom: 1rem; }
+.option { margin-bottom: 0.7rem; cursor: pointer; }
+.option .row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.88rem;
+  margin-bottom: 0.3rem;
+}
+.option .count { color: #80849b; }
+.bar {
+  height: 26px;
+  background: #0f1118;
+  border: 1px solid #252a3a;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #5dd9a0, #38a3c9);
+  transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.total { margin-top: 0.6rem; color: #80849b; font-size: 0.78rem; }
+.option:hover .bar { border-color: #5dd9a0; }
+.empty { color: #80849b; text-align: center; padding: 2rem 0; }
+</style>
+</head>
+<body>
+
+<h1>pulse<span>.</span></h1>
+<p class="sub">Make a poll, share the page, watch votes land in realtime.</p>
+
+<form class="composer" id="composer">
+  <input id="question" placeholder="Question — e.g. tabs or spaces?" maxlength="200" required>
+  <input id="options" placeholder="Options, comma separated — e.g. tabs, spaces, both" required>
+  <button type="submit">Create poll</button>
+</form>
+
+<div class="polls" id="polls">
+  <p class="empty">No polls yet.</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.6.1/dist/sockjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+<script>
+const pollsBox = document.getElementById("polls");
+const polls = new Map();
+
+function render() {
+  if (!polls.size) {
+    pollsBox.innerHTML = '<p class="empty">No polls yet.</p>';
+    return;
+  }
+  pollsBox.innerHTML = "";
+  [...polls.values()].reverse().forEach((poll) => {
+    const card = document.createElement("div");
+    card.className = "poll";
+
+    const title = document.createElement("h2");
+    title.textContent = poll.question;
+    card.appendChild(title);
+
+    const total = poll.totalVotes || 0;
+    Object.entries(poll.results).forEach(([option, count]) => {
+      const wrap = document.createElement("div");
+      wrap.className = "option";
+      wrap.title = "Click to vote";
+
+      const row = document.createElement("div");
+      row.className = "row";
+      const name = document.createElement("span");
+      name.textContent = option;
+      const counter = document.createElement("span");
+      counter.className = "count";
+      const pct = total ? Math.round((count / total) * 100) : 0;
+      counter.textContent = `${count} · ${pct}%`;
+      row.append(name, counter);
+
+      const bar = document.createElement("div");
+      bar.className = "bar";
+      const fill = document.createElement("i");
+      requestAnimationFrame(() => (fill.style.width = pct + "%"));
+      bar.appendChild(fill);
+
+      wrap.append(row, bar);
+      wrap.addEventListener("click", () => vote(poll.id, option));
+      card.appendChild(wrap);
+    });
+
+    const footer = document.createElement("p");
+    footer.className = "total";
+    footer.textContent = `${total} votes · #${poll.id}`;
+    card.appendChild(footer);
+
+    pollsBox.appendChild(card);
+  });
+}
+
+async function vote(id, option) {
+  await fetch(`/api/polls/${id}/vote`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ option }),
+  });
+}
+
+document.getElementById("composer").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const question = document.getElementById("question").value.trim();
+  const options = document.getElementById("options").value.split(",").map((s) => s.trim()).filter(Boolean);
+
+  const res = await fetch("/api/polls", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question, options }),
+  });
+
+  if (res.ok) {
+    e.target.reset();
+  } else {
+    const body = await res.json().catch(() => ({}));
+    alert(body.error || "Could not create the poll.");
+  }
+});
+
+async function loadInitial() {
+  const res = await fetch("/api/polls");
+  (await res.json()).forEach((poll) => polls.set(poll.id, poll));
+  render();
+}
+
+function connect() {
+  const client = Stomp.over(new SockJS("/ws"));
+  client.debug = null;
+  client.connect({}, () => {
+    client.subscribe("/topic/polls", (frame) => {
+      const poll = JSON.parse(frame.body);
+      polls.set(poll.id, poll);
+      render();
+    });
+  }, () => setTimeout(connect, 2000));
+}
+
+loadInitial();
+connect();
+</script>
+</body>
+</html>
