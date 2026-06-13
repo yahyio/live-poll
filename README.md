@@ -2,8 +2,6 @@
 
 Realtime polling board built with Spring Boot and WebSocket/STOMP. Create polls, vote, and watch results update live across multiple browser windows.
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
-
 ## Features
 
 - Create polls (1–200 char question, 2–6 options)
